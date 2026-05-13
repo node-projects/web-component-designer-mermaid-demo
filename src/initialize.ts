@@ -1,6 +1,7 @@
 import { DocumentContainer, PaletteView, PropertyGridWithHeader } from '@node-projects/web-component-designer';
 import { CodeViewMonaco } from '@node-projects/web-component-designer-codeview-monaco';
 import { addMermaidLanguageToMonaco, createMermaidDesignerServiceContainer } from '@node-projects/web-component-designer-mermaid';
+import * as monaco from 'monaco-editor';
 
 await window.customElements.whenDefined("node-projects-document-container");
 
@@ -15,7 +16,7 @@ documentContainer.style.gridArea = 'c';
 document.getElementById('root')!.appendChild(documentContainer);
 (<CodeViewMonaco>documentContainer.codeView).language = "mermaidLanguage";
 (<CodeViewMonaco>documentContainer.codeView).theme = "mermaidTheme";
-addMermaidLanguageToMonaco();
+addMermaidLanguageToMonaco(monaco);
 
 paletteView.loadControls(serviceContainer, serviceContainer.getServices('elementsService'));
 

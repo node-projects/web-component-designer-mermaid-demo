@@ -7,6 +7,7 @@
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, shrink-to-fit=no, maximum-scale=1.0, user-scalable=no">
   <link rel="manifest" href="./manifest.json">
+  <link rel="stylesheet" href="./node_modules/@node-projects/monaco-editor-esm/min/vs/editor/editor.main.css">
 
   <title>web-component-designer-mermaid-demo</title>
 
@@ -19,7 +20,8 @@
   <script>
     const importMap = {
       imports: {
-        "monaco-editor/": "./node_modules/monaco-editor/",
+        "monaco-editor": "./node_modules/@node-projects/monaco-editor-esm/esm/vs/editor/editor.main.min.js",
+        "monaco-editor/": "./node_modules/@node-projects/monaco-editor-esm/",
         "@node-projects/web-component-designer-codeview-monaco": "./node_modules/@node-projects/web-component-designer-codeview-monaco/dist/widgets/codeView/code-view-monaco.js",
         "@node-projects/web-component-designer-codeview-monaco/": "./node_modules/@node-projects/web-component-designer-codeview-monaco/",
         "@node-projects/web-component-designer": "./node_modules/@node-projects/web-component-designer/dist/index.js",
@@ -28,19 +30,11 @@
         "@node-projects/base-custom-webcomponent": "./node_modules/@node-projects/base-custom-webcomponent/dist/index.js",
         "@node-projects/web-component-designer-mermaid": "./node_modules/@node-projects/web-component-designer-mermaid/dist/index.js",
         "@node-projects/web-component-designer-mermaid/": "./node_modules/@node-projects/web-component-designer-mermaid/",
-        "mermaid": "./node_modules/mermaid/dist/mermaid.esm.mjs",
-        "@node-projects/web-component-designer-codeview-monaco": "./node_modules/@node-projects/web-component-designer-codeview-monaco/dist/widgets/codeView/code-view-monaco.js",
-        "@node-projects/web-component-designer-codeview-monaco/": "./node_modules/@node-projects/web-component-designer-codeview-monaco/"
+        "mermaid": "./node_modules/mermaid/dist/mermaid.esm.mjs"
       }
     };
     //@ts-ignore
     importShim.addImportMap(importMap);
-  </script>
-
-  <script src="./node_modules/monaco-editor/min/vs/loader.js"></script>
-  <script>
-    require.config({ paths: { 'vs': 'node_modules/monaco-editor/min/vs', 'vs/css': { disabled: true } } });
-    require(['vs/editor/editor.main'], () => { });    
   </script>
 
   <style>
