@@ -17,6 +17,18 @@ jobs:
         node-version: ${{ matrix.node-version }}
     - name: npm install
       run: npm install
+    - name: Build unpublished mermaid package
+      run: |
+        git clone --depth 1 https://github.com/node-projects/web-component-designer.git ../web-component-designer
+        cd ../web-component-designer
+        npm install
+        npm run build --workspace @node-projects/web-component-designer-mermaid
+        cd -
+        rm -rf node_modules/@node-projects/web-component-designer-mermaid
+        mkdir -p node_modules/@node-projects/web-component-designer-mermaid
+        cp -R ../web-component-designer/packages/web-component-designer-mermaid/package.json node_modules/@node-projects/web-component-designer-mermaid/
+        cp -R ../web-component-designer/packages/web-component-designer-mermaid/README.md node_modules/@node-projects/web-component-designer-mermaid/
+        cp -R ../web-component-designer/packages/web-component-designer-mermaid/dist node_modules/@node-projects/web-component-designer-mermaid/
     - name: Typescript
       run: npx tsc
     #- name: Transform imports
