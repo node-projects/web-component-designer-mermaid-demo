@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@node-projects/base-custom-webcomponent": "0.46.0",
+    "@node-projects/monaco-editor-esm": "^0.55.1",
     "@node-projects/web-component-designer": "0.2.24",
     "@node-projects/web-component-designer-codeview-monaco": "^0.2.1",
     "@node-projects/web-component-designer-mermaid": "0.1.1",
