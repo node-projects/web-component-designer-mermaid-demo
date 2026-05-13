@@ -1,0 +1,519 @@
+import { EventNames } from '../../../../enums/EventNames.js';
+import { PointerActionType } from '../../../../enums/PointerActionType.js';
+import { DesignItem } from '../../../item/DesignItem.js';
+import { ExtensionType } from '../extensions/ExtensionType.js';
+import { NamedTools } from './NamedTools.js';
+import { hasCommandKey } from '../../../helper/KeyboardHelper.js';
+export class PointerTool {
+    cursor = 'default';
+    _minMoveOffset = 5;
+    _movedSinceStartedAction = false;
+    _initialPoint;
+    _actionType;
+    _actionStartedDesignItem;
+    _actionStartedClickDesignItem;
+    _actionStartedDesignItems;
+    _clonedItems;
+    _copiedItemsInserted = false;
+    _previousEventName;
+    _dragOverExtensionItem;
+    _dragParentExtensionItem;
+    _moveItemsOffset = { x: 0, y: 0 };
+    _initialOffset;
+    _started = false;
+    _holdTimeout;
+    _firstTimeInMove;
+    _secondTimeInMove;
+    _changeGroup;
+    constructor() {
+    }
+    activated(serviceContainer) {
+    }
+    dispose() {
+    }
+    _showContextMenu(event, designerCanvas) {
+        event.preventDefault();
+        if (!hasCommandKey(event)) {
+            let items = designerCanvas.elementsFromPoint(event.x, event.y);
+            for (let e of designerCanvas.instanceServiceContainer.selectionService.selectedElements) {
+                if (items.indexOf(e.element) >= 0) {
+                    designerCanvas.showDesignItemContextMenu(designerCanvas.instanceServiceContainer.selectionService.primarySelection, event);
+                    return;
+                }
+            }
+            let newEl = designerCanvas.serviceContainer.elementAtPointService.getElementAtPoint(designerCanvas, { x: event.x, y: event.y });
+            const designItem = DesignItem.GetOrCreateDesignItem(newEl, newEl, designerCanvas.serviceContainer, designerCanvas.instanceServiceContainer);
+            if (!designerCanvas.instanceServiceContainer.selectionService.isSelected(designItem)) {
+                designerCanvas.instanceServiceContainer.selectionService.setSelectedElements([designItem], event);
+            }
+            designerCanvas.showDesignItemContextMenu(designItem, event);
+        }
+    }
+    pointerEventHandler(designerCanvas, event, currentElement) {
+        if (hasCommandKey(event))
+            this.cursor = 'copy';
+        else
+            this.cursor = 'default';
+        const interactionServices = designerCanvas.serviceContainer.elementInteractionServices;
+        if (interactionServices)
+            for (let s of interactionServices) {
+                if (s.stopEventHandling(designerCanvas, event, currentElement))
+                    return;
+            }
+        if (event.button == 2 && event.type == EventNames.PointerDown) {
+            this._showContextMenu(event, designerCanvas);
+            return;
+        }
+        if ((hasCommandKey(event) && event.shiftKey) || event.buttons == 4) {
+            const panTool = designerCanvas.serviceContainer.designerTools.get(NamedTools.Pan);
+            if (panTool) {
+                panTool.pointerEventHandler(designerCanvas, event, currentElement);
+                return;
+            }
+        }
+        switch (event.type) {
+            case EventNames.PointerDown:
+                event.target.setPointerCapture(event.pointerId);
+                designerCanvas.captureActiveTool(this);
+                this._movedSinceStartedAction = false;
+                this._copiedItemsInserted = false;
+                this._clonedItems = null;
+                this._firstTimeInMove = false;
+                this._secondTimeInMove = false;
+                break;
+            case EventNames.PointerUp:
+                event.target.releasePointerCapture(event.pointerId);
+                designerCanvas.releaseActiveTool();
+                this._copiedItemsInserted = false;
+                this._clonedItems = null;
+                this._firstTimeInMove = false;
+                this._secondTimeInMove = false;
+                break;
+            case EventNames.PointerMove:
+                if (this._firstTimeInMove)
+                    this._secondTimeInMove = true;
+                if (this._secondTimeInMove)
+                    this._firstTimeInMove = false;
+                else
+                    this._firstTimeInMove = true;
+                break;
+        }
+        if (!currentElement)
+            return;
+        const currentPoint = designerCanvas.getNormalizedEventCoordinates(event);
+        const currentDesignItem = DesignItem.GetOrCreateDesignItem(currentElement, currentElement, designerCanvas.serviceContainer, designerCanvas.instanceServiceContainer);
+        if (this._actionType == null) {
+            this._initialPoint = currentPoint;
+            if (event.shiftKey) {
+                event.preventDefault();
+                this._actionType = PointerActionType.DrawSelection;
+            }
+            else if (event.type == EventNames.PointerDown) {
+                this._actionStartedDesignItem = currentDesignItem;
+                this._actionStartedDesignItems = [...designerCanvas.instanceServiceContainer.selectionService.selectedElements];
+                designerCanvas.snapLines.clearSnaplines();
+                if (currentDesignItem !== designerCanvas.rootDesignItem) {
+                    this._actionType = PointerActionType.Drag;
+                }
+                else if (currentElement === designerCanvas || currentElement === designerCanvas.rootDesignItem.element || currentElement == null) {
+                    //if (!hasCommandKey(event) && !event.shiftKey)
+                    //  designerCanvas.instanceServiceContainer.selectionService.setSelectedElements(null, event);
+                    this._actionType = PointerActionType.DrawSelection;
+                }
+                else {
+                    this._actionType = PointerActionType.DragOrSelect;
+                }
+            }
+        }
+        if (event.type === EventNames.PointerMove) {
+            this._movedSinceStartedAction = this._movedSinceStartedAction || Math.abs(currentPoint.x - this._initialPoint.x) > this._minMoveOffset || Math.abs(currentPoint.y - this._initialPoint.y) > this._minMoveOffset;
+            if (this._actionType == PointerActionType.DrawSelection)
+                this._actionType = PointerActionType.DrawingSelection;
+        }
+        if (this._actionType == PointerActionType.DrawSelection || this._actionType == PointerActionType.DrawingSelection) {
+            this._pointerActionTypeDrawSelection(designerCanvas, event, currentElement);
+        }
+        else if (this._actionType == PointerActionType.DragOrSelect || this._actionType == PointerActionType.Drag) {
+            this._pointerActionTypeDragOrSelect(designerCanvas, event, currentDesignItem, currentPoint);
+        }
+        if (event.type == EventNames.PointerUp) {
+            designerCanvas.snapLines.clearSnaplines();
+            if (this._actionType == PointerActionType.DrawSelection) {
+                if (currentDesignItem !== designerCanvas.rootDesignItem)
+                    designerCanvas.instanceServiceContainer.selectionService.setSelectedElements([currentDesignItem], event);
+            }
+            this._resetTool();
+        }
+        this._previousEventName = event.type;
+    }
+    _resetTool() {
+        this._actionType = null;
+        this._actionStartedDesignItem = null;
+        this._actionStartedClickDesignItem = null;
+        this._actionStartedDesignItems = null;
+        this._movedSinceStartedAction = false;
+        this._initialPoint = null;
+        this._initialOffset = null;
+    }
+    _pointerActionTypeDrawSelection(designerView, event, currentElement) {
+        const drawSelectionTool = designerView.serviceContainer.designerTools.get(NamedTools.DrawSelection);
+        if (drawSelectionTool) {
+            this._resetTool();
+            drawSelectionTool.pointerEventHandler(designerView, event, currentElement);
+        }
+    }
+    async _pointerActionTypeDragOrSelect(designerCanvas, event, currentDesignItem, currentPoint, raisedFromHold = false) {
+        if (this._holdTimeout) {
+            clearTimeout(this._holdTimeout);
+            this._holdTimeout = null;
+        }
+        let clickDesignItem = currentDesignItem;
+        if (event.altKey) {
+            if (event.type == EventNames.PointerDown) {
+                const currentSelection = designerCanvas.instanceServiceContainer.selectionService.primarySelection;
+                if (currentSelection) {
+                    const elements = designerCanvas.elementsFromPoint(event.x, event.y);
+                    let idx = elements.indexOf(currentSelection.element);
+                    if (idx >= 0) {
+                        idx++;
+                    }
+                    let currentElement = elements[idx];
+                    if (currentElement)
+                        currentDesignItem = DesignItem.GetOrCreateDesignItem(currentElement, currentElement, designerCanvas.serviceContainer, designerCanvas.instanceServiceContainer);
+                }
+            }
+            clickDesignItem = currentDesignItem;
+        }
+        else if (event.type == EventNames.PointerDown) {
+            currentDesignItem = this._getDesignItemToStartDrag(designerCanvas, currentDesignItem, currentPoint);
+        }
+        switch (event.type) {
+            case EventNames.PointerDown:
+                {
+                    this._actionStartedClickDesignItem = clickDesignItem;
+                    this._actionStartedDesignItem = currentDesignItem;
+                    this._initialOffset = designerCanvas.getNormalizedOffsetInElement(event, this._actionStartedDesignItem.element);
+                    this._moveItemsOffset = { x: 0, y: 0 };
+                    this._actionStartedDesignItems = [...designerCanvas.instanceServiceContainer.selectionService.selectedElements];
+                    if (designerCanvas.alignOnSnap)
+                        designerCanvas.snapLines.calculateSnaplines(designerCanvas.instanceServiceContainer.selectionService.selectedElements);
+                    break;
+                }
+            case EventNames.PointerMove:
+                {
+                    if (event.buttons == 0) {
+                        return;
+                    }
+                    if (this._firstTimeInMove) {
+                        const dragDesignItem = this._actionStartedDesignItem ?? currentDesignItem;
+                        if (!dragDesignItem.instanceServiceContainer.selectionService.selectedElements.includes(dragDesignItem)) {
+                            if (hasCommandKey(event))
+                                dragDesignItem.instanceServiceContainer.selectionService.setSelectedElements([...dragDesignItem.instanceServiceContainer.selectionService.selectedElements, dragDesignItem], event);
+                            else
+                                dragDesignItem.instanceServiceContainer.selectionService.setSelectedElements([dragDesignItem], event);
+                            this._actionStartedDesignItems = [...designerCanvas.instanceServiceContainer.selectionService.selectedElements];
+                            if (designerCanvas.alignOnSnap)
+                                designerCanvas.snapLines.calculateSnaplines(designerCanvas.instanceServiceContainer.selectionService.selectedElements);
+                        }
+                    }
+                    if (designerCanvas.readOnly) {
+                        return;
+                    }
+                    // *** Copy Items via Ctrl Drag ***
+                    if (!this._clonedItems) {
+                        this._clonedItems = [];
+                        for (let d of this._actionStartedDesignItems) {
+                            const clone = await d.clone();
+                            if (this._clonedItems && clone)
+                                this._clonedItems.push(clone);
+                        }
+                    }
+                    if (!this._actionStartedDesignItem)
+                        return;
+                    if (!this._changeGroup) {
+                        this._changeGroup = designerCanvas.rootDesignItem.openGroup("Move Elements");
+                        window.addEventListener('pointerup', () => { this._changeGroup?.abort(); this._changeGroup = null; }, { once: true });
+                    }
+                    if (hasCommandKey(event) && !this._copiedItemsInserted) {
+                        this._changeGroup.title = "Copy Elements";
+                        this._copiedItemsInserted = true;
+                        for (let i = 0; i < this._clonedItems.length; i++) {
+                            this._actionStartedDesignItems[i].insertAdjacentElement(this._clonedItems[i], 'beforebegin');
+                        }
+                        //TODO: check if this is needed? designerCanvas.instanceServiceContainer.onContentChanged.emit({ changeType: 'added', designItems: this._clonedItems });
+                    }
+                    else if (!hasCommandKey(event) && this._copiedItemsInserted) {
+                        this._changeGroup.title = "Move Elements";
+                        for (let d of this._clonedItems) {
+                            d.remove();
+                        }
+                        this._copiedItemsInserted = false;
+                        //TODO: check if this is needed? designerCanvas.instanceServiceContainer.onContentChanged.emit({ changeType: 'removed', designItems: this._clonedItems });
+                    }
+                    // *** End Copy Items Part ***
+                    const elementMoved = currentPoint.x != this._initialPoint.x || currentPoint.y != this._initialPoint.y;
+                    if (this._actionType != PointerActionType.Drag && elementMoved) {
+                        this._actionType = PointerActionType.Drag;
+                    }
+                    if (this._movedSinceStartedAction) {
+                        const containerStyle = getComputedStyle(this._actionStartedDesignItem.parent.element);
+                        const currentContainerService = designerCanvas.serviceContainer.getLastServiceWhere('containerService', x => x.serviceForContainer(this._actionStartedDesignItem.parent, containerStyle, this._actionStartedDesignItem));
+                        if (currentContainerService) {
+                            const dragItem = this._actionStartedDesignItem.parent;
+                            if (this._dragParentExtensionItem != dragItem) {
+                                designerCanvas.extensionManager.removeExtension(this._dragParentExtensionItem, ExtensionType.ContainerDrag);
+                                designerCanvas.extensionManager.applyExtension(dragItem, ExtensionType.ContainerDrag, event);
+                                this._dragParentExtensionItem = dragItem;
+                            }
+                            else {
+                                designerCanvas.extensionManager.refreshExtension(dragItem, ExtensionType.ContainerDrag);
+                            }
+                            const canLeave = currentContainerService.canLeave(this._actionStartedDesignItem.parent, this._actionStartedDesignItems);
+                            let newContainerElementDesignItem = null;
+                            let newContainerService = null;
+                            if (canLeave) {
+                                [newContainerElementDesignItem, newContainerService] = PointerTool.FindPossibleContainer(this._actionStartedDesignItem, this._actionStartedDesignItems, event);
+                                //if we found a new enterable container create extensions 
+                                if (newContainerElementDesignItem != null) {
+                                    if (this._dragOverExtensionItem != newContainerElementDesignItem) {
+                                        designerCanvas.extensionManager.removeExtension(this._dragOverExtensionItem, ExtensionType.ContainerDragOverAndCanBeEntered);
+                                        designerCanvas.extensionManager.applyExtension(newContainerElementDesignItem, ExtensionType.ContainerDragOverAndCanBeEntered, event);
+                                        this._dragOverExtensionItem = newContainerElementDesignItem;
+                                    }
+                                    else {
+                                        designerCanvas.extensionManager.refreshExtension(newContainerElementDesignItem, ExtensionType.ContainerDragOverAndCanBeEntered, event);
+                                    }
+                                }
+                                else {
+                                    if (this._dragOverExtensionItem) {
+                                        designerCanvas.extensionManager.removeExtension(this._dragOverExtensionItem, ExtensionType.ContainerDragOverAndCanBeEntered);
+                                        this._dragOverExtensionItem = null;
+                                    }
+                                }
+                            }
+                            if (newContainerService) {
+                                this._holdTimeout = setTimeout(() => {
+                                    this._pointerActionTypeDragOrSelect(designerCanvas, event, currentDesignItem, currentPoint, true);
+                                }, 1000);
+                            }
+                            if (newContainerService && (event.altKey || raisedFromHold)) {
+                                //TODO: all items, fix position
+                                const oldOffset = currentContainerService.getElementOffset(this._actionStartedDesignItem.parent, this._actionStartedDesignItem);
+                                const newOffset = newContainerService.getElementOffset(newContainerElementDesignItem, this._actionStartedDesignItem);
+                                this._moveItemsOffset = { x: newOffset.x - oldOffset.x + this._moveItemsOffset.x, y: newOffset.y - oldOffset.y + this._moveItemsOffset.y };
+                                currentContainerService.leaveContainer(this._actionStartedDesignItem.parent, this._actionStartedDesignItems);
+                                const cp = { x: currentPoint.x - this._moveItemsOffset.x, y: currentPoint.y - this._moveItemsOffset.y };
+                                newContainerService.enterContainer(newContainerElementDesignItem, this._actionStartedDesignItems, 'normal');
+                                newContainerService.place(event, designerCanvas, this._actionStartedDesignItem.parent, this._initialPoint, this._initialOffset, cp, this._actionStartedDesignItems);
+                                designerCanvas.extensionManager.removeExtension(this._dragParentExtensionItem, ExtensionType.ContainerDrag);
+                                designerCanvas.extensionManager.applyExtension(newContainerElementDesignItem, ExtensionType.ContainerDrag, event);
+                                this._dragParentExtensionItem = newContainerElementDesignItem;
+                                designerCanvas.extensionManager.removeExtension(this._dragOverExtensionItem, ExtensionType.ContainerDragOverAndCanBeEntered);
+                                this._dragOverExtensionItem = null;
+                                designerCanvas.extensionManager.refreshAllAppliedExtentions();
+                            }
+                            else {
+                                const cp = { x: currentPoint.x - this._moveItemsOffset.x, y: currentPoint.y - this._moveItemsOffset.y };
+                                if (!this._started) {
+                                    if (!currentContainerService.startPlacementAllowed || currentContainerService.startPlacementAllowed(event, designerCanvas, this._actionStartedDesignItem.parent, this._actionStartedDesignItems)) {
+                                        for (const item of this._actionStartedDesignItems) {
+                                            designerCanvas.extensionManager.removeExtension(item, ExtensionType.Placement);
+                                            designerCanvas.extensionManager.removeExtension(item, ExtensionType.MouseOver);
+                                            designerCanvas.extensionManager.applyExtension(item, ExtensionType.Placement, event);
+                                        }
+                                        currentContainerService.startPlace(event, designerCanvas, this._actionStartedDesignItem.parent, this._initialPoint, this._initialOffset, cp, this._actionStartedDesignItems);
+                                        this._started = true;
+                                    }
+                                }
+                                else
+                                    currentContainerService.place(event, designerCanvas, this._actionStartedDesignItem.parent, this._initialPoint, this._initialOffset, cp, this._actionStartedDesignItems);
+                            }
+                            designerCanvas.extensionManager.refreshExtensions(this._actionStartedDesignItems, null, event, null, 20);
+                        }
+                    }
+                    break;
+                }
+            case EventNames.PointerUp:
+                {
+                    this._started = false;
+                    if (!this._movedSinceStartedAction || this._actionType == PointerActionType.DragOrSelect) {
+                        if (this._previousEventName == EventNames.PointerDown && !hasCommandKey(event)) {
+                            designerCanvas.instanceServiceContainer.selectionService.setSelectedElements([this._actionStartedClickDesignItem ?? this._actionStartedDesignItem], event);
+                        }
+                        else {
+                            this.checkSelectElement(event, designerCanvas, currentDesignItem);
+                        }
+                        return;
+                    }
+                    if (this._movedSinceStartedAction) {
+                        const containerStyle = getComputedStyle(this._actionStartedDesignItem.parent.element);
+                        let containerService = designerCanvas.serviceContainer.getLastServiceWhere('containerService', x => x.serviceForContainer(this._actionStartedDesignItem.parent, containerStyle, this._actionStartedDesignItem));
+                        const cp = { x: currentPoint.x - this._moveItemsOffset.x, y: currentPoint.y - this._moveItemsOffset.y };
+                        if (containerService) {
+                            if (!this._changeGroup)
+                                this._changeGroup = designerCanvas.rootDesignItem.openGroup("Move Elements");
+                            try {
+                                containerService.finishPlace(event, designerCanvas, this._actionStartedDesignItem.parent, this._initialPoint, this._initialOffset, cp, designerCanvas.instanceServiceContainer.selectionService.selectedElements);
+                                this._changeGroup.commit();
+                                this._changeGroup = null;
+                            }
+                            catch (err) {
+                                console.error(err);
+                                this._changeGroup.abort();
+                            }
+                            this._changeGroup = null;
+                            let elements = designerCanvas.elementsFromPoint(event.x, event.y);
+                            for (const item of this._actionStartedDesignItems) {
+                                if (elements.includes(item.element))
+                                    designerCanvas.extensionManager.applyExtension(item, ExtensionType.MouseOver, event);
+                                designerCanvas.extensionManager.removeExtension(item, ExtensionType.Placement);
+                            }
+                        }
+                        else {
+                            if (this._changeGroup)
+                                this._changeGroup.abort();
+                            this._changeGroup = null;
+                        }
+                        designerCanvas.extensionManager.removeExtension(this._dragParentExtensionItem, ExtensionType.ContainerDrag);
+                        this._dragParentExtensionItem = null;
+                        designerCanvas.extensionManager.removeExtension(this._dragOverExtensionItem, ExtensionType.ContainerDragOverAndCanBeEntered);
+                        this._dragOverExtensionItem = null;
+                        this._moveItemsOffset = { x: 0, y: 0 };
+                    }
+                    designerCanvas.extensionManager.refreshExtensions(designerCanvas.instanceServiceContainer.selectionService.selectedElements, null, event, null, 20);
+                    if (this._changeGroup) {
+                        this._changeGroup.abort();
+                        this._changeGroup = null;
+                    }
+                    break;
+                }
+        }
+    }
+    _getDesignItemToStartDrag(designerCanvas, currentDesignItem, currentPoint) {
+        const selectedElements = designerCanvas.instanceServiceContainer.selectionService.selectedElements;
+        if (!selectedElements?.length || currentDesignItem.isRootItem || selectedElements.includes(currentDesignItem)) {
+            return currentDesignItem;
+        }
+        for (const designItem of selectedElements) {
+            if (!designItem || designItem.isRootItem || designItem === currentDesignItem) {
+                continue;
+            }
+            if (this._isPointInsideDesignItemQuad(designerCanvas, designItem, currentPoint)) {
+                return designItem;
+            }
+        }
+        return currentDesignItem;
+    }
+    _isPointInsideDesignItemQuad(designerCanvas, designItem, point) {
+        const quad = designItem.element.getBoxQuads({ box: 'border', relativeTo: designerCanvas.canvas, iframes: designerCanvas.iframes })[0];
+        if (!quad) {
+            return false;
+        }
+        return this._isPointInsideQuad(point, quad);
+    }
+    _isPointInsideQuad(point, quad) {
+        const points = [quad.p1, quad.p2, quad.p3, quad.p4];
+        for (let i = 0; i < points.length; i++) {
+            const start = points[i];
+            const end = points[(i + 1) % points.length];
+            if (this._isPointOnSegment(point, start, end)) {
+                return true;
+            }
+        }
+        let inside = false;
+        for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+            const start = points[i];
+            const end = points[j];
+            const intersects = ((start.y > point.y) !== (end.y > point.y)) &&
+                (point.x < ((end.x - start.x) * (point.y - start.y)) / ((end.y - start.y) || Number.EPSILON) + start.x);
+            if (intersects) {
+                inside = !inside;
+            }
+        }
+        return inside;
+    }
+    _isPointOnSegment(point, start, end) {
+        const epsilon = 0.0001;
+        const crossProduct = (point.y - start.y) * (end.x - start.x) - (point.x - start.x) * (end.y - start.y);
+        if (Math.abs(crossProduct) > epsilon) {
+            return false;
+        }
+        const dotProduct = (point.x - start.x) * (end.x - start.x) + (point.y - start.y) * (end.y - start.y);
+        if (dotProduct < -epsilon) {
+            return false;
+        }
+        const squaredLength = (end.x - start.x) * (end.x - start.x) + (end.y - start.y) * (end.y - start.y);
+        return dotProduct <= squaredLength + epsilon;
+    }
+    checkSelectElement(event, designerCanvas, currentDesignItem) {
+        if (hasCommandKey(event)) {
+            const index = designerCanvas.instanceServiceContainer.selectionService.selectedElements.indexOf(currentDesignItem);
+            if (index >= 0) {
+                let newSelectedList = designerCanvas.instanceServiceContainer.selectionService.selectedElements.slice(0);
+                newSelectedList.splice(index, 1);
+                designerCanvas.instanceServiceContainer.selectionService.setSelectedElements(newSelectedList, event);
+            }
+            else {
+                let newSelectedList = designerCanvas.instanceServiceContainer.selectionService.selectedElements.slice(0);
+                newSelectedList.push(currentDesignItem);
+                designerCanvas.instanceServiceContainer.selectionService.setSelectedElements(newSelectedList, event);
+            }
+        }
+        else {
+            if (designerCanvas.instanceServiceContainer.selectionService.selectedElements.indexOf(currentDesignItem) < 0)
+                designerCanvas.instanceServiceContainer.selectionService.setSelectedElements([currentDesignItem], event);
+        }
+    }
+    static FindPossibleContainer(designItem, designItems, event) {
+        let newContainerElementDesignItem = null;
+        let newContainerService = null;
+        const designerCanvas = designItem.instanceServiceContainer.designerCanvas;
+        const elementsFromPoint = designerCanvas.elementsFromPoint(event.x, event.y);
+        elementsFromPoint.push(designerCanvas.rootDesignItem.element);
+        for (let e of elementsFromPoint) {
+            if (e == designItem.element) {
+                continue;
+            }
+            else if (e == designItem.parent.element) {
+                break;
+            }
+            else if (e == designerCanvas.rootDesignItem.element) {
+                newContainerElementDesignItem = designerCanvas.rootDesignItem;
+                const containerStyle = getComputedStyle(newContainerElementDesignItem.element);
+                newContainerService = designerCanvas.serviceContainer.getLastServiceWhere('containerService', x => x.serviceForContainer(newContainerElementDesignItem, containerStyle, designItem));
+                if (newContainerService) {
+                    if (newContainerService.canEnter(newContainerElementDesignItem, designItems)) {
+                        break;
+                    }
+                    else {
+                        newContainerElementDesignItem = null;
+                        newContainerService = null;
+                        break;
+                    }
+                }
+                break;
+            }
+            else if (false) {
+                //check we don't try to move a item over one of its children..
+            }
+            else {
+                newContainerElementDesignItem = DesignItem.GetOrCreateDesignItem(e, e, designerCanvas.serviceContainer, designerCanvas.instanceServiceContainer);
+                const containerStyle = getComputedStyle(newContainerElementDesignItem.element);
+                newContainerService = designerCanvas.serviceContainer.getLastServiceWhere('containerService', x => x.serviceForContainer(newContainerElementDesignItem, containerStyle, designItem));
+                if (newContainerService) {
+                    if (newContainerService.canEnter(newContainerElementDesignItem, designItems)) {
+                        break;
+                    }
+                    else {
+                        newContainerElementDesignItem = null;
+                        newContainerService = null;
+                        continue;
+                    }
+                }
+            }
+        }
+        return [newContainerElementDesignItem, newContainerService];
+    }
+    keyboardEventHandler(designerCanvas, event, currentElement) { }
+}
+//# sourceMappingURL=PointerTool.js.map

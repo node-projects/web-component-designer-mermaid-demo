@@ -1,0 +1,17 @@
+import { DocumentContainer } from '@node-projects/web-component-designer';
+import { CodeViewMonaco } from '@node-projects/web-component-designer-codeview-monaco';
+import { addMermaidLanguageToMonaco, createMermaidDesignerServiceContainer } from '@node-projects/web-component-designer-mermaid';
+await window.customElements.whenDefined("node-projects-document-container");
+const paletteView = document.querySelector('node-projects-palette-view');
+const propertyGridWithHeader = document.querySelector('node-projects-web-component-designer-property-grid-with-header');
+let serviceContainer = createMermaidDesignerServiceContainer();
+serviceContainer.config.codeViewWidget = CodeViewMonaco;
+const documentContainer = new DocumentContainer(serviceContainer);
+documentContainer.style.gridArea = 'c';
+document.getElementById('root').appendChild(documentContainer);
+documentContainer.codeView.language = "mermaidLanguage";
+documentContainer.codeView.theme = "mermaidTheme";
+addMermaidLanguageToMonaco();
+paletteView.loadControls(serviceContainer, serviceContainer.getServices('elementsService'));
+propertyGridWithHeader.serviceContainer = serviceContainer;
+propertyGridWithHeader.instanceServiceContainer = documentContainer.instanceServiceContainer;

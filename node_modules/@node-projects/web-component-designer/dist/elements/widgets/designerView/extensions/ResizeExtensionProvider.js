@@ -1,0 +1,23 @@
+import { ResizeExtension } from './ResizeExtension.js';
+import { css } from "@node-projects/base-custom-webcomponent";
+import { NodeType } from "../../../item/NodeType.js";
+export class ResizeExtensionProvider {
+    resizeAllSelected;
+    constructor(resizeAllSelected = false) {
+        this.resizeAllSelected = resizeAllSelected;
+    }
+    shouldExtend(extensionManager, designerCanvas, designItem) {
+        if (designerCanvas.readOnly)
+            return false;
+        if (designItem.element instanceof SVGElement || designItem.element instanceof HTMLTemplateElement)
+            return false;
+        return !designItem.isRootItem && designItem.nodeType == NodeType.Element;
+    }
+    getExtension(extensionManager, designerCanvas, designItem) {
+        return new ResizeExtension(extensionManager, designerCanvas, designItem, this.resizeAllSelected);
+    }
+    static style = css `
+    .svg-primary-resizer { stroke: #3899ec; fill: white; pointer-events: auto; }
+  `;
+}
+//# sourceMappingURL=ResizeExtensionProvider.js.map

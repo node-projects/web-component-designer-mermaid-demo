@@ -1,0 +1,31 @@
+export class SelectionChangedAction {
+    constructor(oldSelection, newSelection, selectionService) {
+        this.title = "Change Selection";
+        this.oldSelection = oldSelection;
+        this.newSelection = newSelection;
+        this.selectionService = selectionService;
+    }
+    title;
+    get affectedItems() {
+        if (this.oldSelection && this.newSelection)
+            return [...this.oldSelection, ...this.newSelection];
+        if (this.oldSelection)
+            return [...this.oldSelection];
+        return [...this.newSelection];
+    }
+    undo() {
+        this.selectionService._withoutUndoSetSelectedElements(this.oldSelection);
+        return null;
+    }
+    do() {
+        this.selectionService._withoutUndoSetSelectedElements(this.newSelection);
+        return null;
+    }
+    oldSelection;
+    newSelection;
+    selectionService;
+    mergeWith(other) {
+        return false;
+    }
+}
+//# sourceMappingURL=SelectionChangedAction.js.map

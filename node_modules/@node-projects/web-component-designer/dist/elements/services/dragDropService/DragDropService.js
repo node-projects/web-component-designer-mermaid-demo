@@ -1,0 +1,129 @@
+import { DesignItem } from '../../item/DesignItem.js';
+import { ExtensionType } from "../../widgets/designerView/extensions/ExtensionType.js";
+import { dragDropFormatNameElementDefinition } from "../../../Constants.js";
+export class DragDropService {
+    _dragOverExtensionItem;
+    _oldX;
+    _oldY;
+    _currentDragDropFormatNameElementDefinition;
+    constructor() {
+        window.addEventListener("dragstart", (e) => {
+            const dt = e.dataTransfer;
+            if (!dt)
+                return;
+            const origSetData = dt.setData.bind(dt);
+            dt.setData = (type, value) => {
+                if (type == dragDropFormatNameElementDefinition)
+                    this._currentDragDropFormatNameElementDefinition = value;
+                return origSetData(type, value);
+            };
+        }, true); // <-- use capture phase!
+        window.addEventListener("dragend", (e) => {
+            this._currentDragDropFormatNameElementDefinition = null;
+        }, true); // <-- use capture phase!
+    }
+    dragEnter(designerCanvas, event) {
+    }
+    dragLeave(designerCanvas, event) {
+        if (this._dragOverExtensionItem) {
+            designerCanvas.extensionManager.removeExtension(this._dragOverExtensionItem, ExtensionType.ContainerExternalDragOverAndCanBeEntered);
+            this._dragOverExtensionItem = null;
+        }
+    }
+    async dragOver(designerCanvas, event) {
+        if (designerCanvas.readOnly) {
+            event.dataTransfer.dropEffect = 'none';
+            return;
+        }
+        let di = null;
+        let transferData = event.dataTransfer.getData(dragDropFormatNameElementDefinition);
+        if (!transferData) {
+            transferData = this._currentDragDropFormatNameElementDefinition;
+        }
+        if (transferData) {
+            const elementDefinition = JSON.parse(transferData);
+            if (elementDefinition) {
+                di = await designerCanvas.serviceContainer.forSomeServicesTillResult("instanceService", (service) => service.getElement(elementDefinition, designerCanvas.serviceContainer, designerCanvas.instanceServiceContainer));
+            }
+        }
+        let [newContainer] = this.getPossibleContainerForDragDrop(designerCanvas, event, di ? [di] : null);
+        if (!newContainer)
+            newContainer = designerCanvas.rootDesignItem;
+        if (this._dragOverExtensionItem != newContainer) {
+            designerCanvas.extensionManager.removeExtension(this._dragOverExtensionItem, ExtensionType.ContainerExternalDragOverAndCanBeEntered);
+            designerCanvas.extensionManager.applyExtension(newContainer, ExtensionType.ContainerExternalDragOverAndCanBeEntered, event);
+            this._dragOverExtensionItem = newContainer;
+        }
+        else {
+            if (event.x != this._oldX && event.y != this._oldY) {
+                this._oldX = event.x;
+                this._oldY = event.y;
+                designerCanvas.extensionManager.refreshExtension(newContainer, ExtensionType.ContainerExternalDragOverAndCanBeEntered, event);
+            }
+        }
+    }
+    async drop(designerCanvas, event) {
+        if (this._dragOverExtensionItem) {
+            designerCanvas.extensionManager.removeExtension(this._dragOverExtensionItem, ExtensionType.ContainerExternalDragOverAndCanBeEntered);
+            this._dragOverExtensionItem = null;
+        }
+        const transferData = event.dataTransfer.getData(dragDropFormatNameElementDefinition);
+        const elementDefinition = JSON.parse(transferData);
+        const di = await designerCanvas.serviceContainer.forSomeServicesTillResult("instanceService", (service) => service.getElement(elementDefinition, designerCanvas.serviceContainer, designerCanvas.instanceServiceContainer));
+        let [newContainer] = this.getPossibleContainerForDragDrop(designerCanvas, event, [di]);
+        if (!newContainer)
+            newContainer = designerCanvas.rootDesignItem;
+        const grp = di.openGroup("Insert of &lt;" + di.name + "&gt;");
+        const containerService = designerCanvas.serviceContainer.getLastServiceWhere('containerService', x => x.serviceForContainer(newContainer, newContainer.getComputedStyle(), di));
+        containerService.enterContainer(newContainer, [di], 'drop');
+        const containerPos = designerCanvas.getNormalizedElementCoordinates(newContainer.element);
+        const evCoord = designerCanvas.getNormalizedEventCoordinates(event);
+        const pos = { x: evCoord.x - containerPos.x, y: evCoord.y - containerPos.y };
+        let offset = { x: 0, y: 0 };
+        if (elementDefinition.mouseOffset)
+            offset = elementDefinition.mouseOffset;
+        containerService.place(event, designerCanvas, newContainer, offset, { x: 0, y: 0 }, pos, [di]);
+        containerService.finishPlace(event, designerCanvas, newContainer, offset, { x: 0, y: 0 }, pos, [di]);
+        requestAnimationFrame(() => {
+            designerCanvas.instanceServiceContainer.selectionService.setSelectedElements([di], event);
+            grp.commit();
+        });
+    }
+    getPossibleContainerForDragDrop(designerCanvas, event, designItems) {
+        let newContainerElementDesignItem = null;
+        let newContainerService = null;
+        const elementsFromPoint = designerCanvas.elementsFromPoint(event.clientX, event.clientY);
+        for (let e of elementsFromPoint) {
+            if (e == designerCanvas.rootDesignItem.element) {
+                newContainerElementDesignItem = designerCanvas.rootDesignItem;
+                const containerStyle = getComputedStyle(newContainerElementDesignItem.element);
+                newContainerService = designerCanvas.serviceContainer.getLastServiceWhere('containerService', x => x.serviceForContainer(newContainerElementDesignItem, containerStyle));
+                break;
+            }
+            else if (false) {
+                //check we don't try to move a item over one of its children..
+            }
+            else {
+                newContainerElementDesignItem = DesignItem.GetOrCreateDesignItem(e, e, designerCanvas.serviceContainer, designerCanvas.instanceServiceContainer);
+                const containerStyle = getComputedStyle(newContainerElementDesignItem.element);
+                newContainerService = designerCanvas.serviceContainer.getLastServiceWhere('containerService', x => x.serviceForContainer(newContainerElementDesignItem, containerStyle));
+                if (newContainerService) {
+                    //TODO: Maybe the check for SVG Element should be in "canEnterByDrop"?
+                    if (designItems && newContainerService.canEnter(newContainerElementDesignItem, designItems) && !(newContainerElementDesignItem.element instanceof newContainerElementDesignItem.window.SVGElement)) {
+                        break;
+                    }
+                    else if (!designItems && newContainerService.isEnterableContainer(newContainerElementDesignItem) && !(newContainerElementDesignItem.element instanceof newContainerElementDesignItem.window.SVGElement)) {
+                        break;
+                    }
+                    else {
+                        newContainerElementDesignItem = null;
+                        newContainerService = null;
+                        continue;
+                    }
+                }
+            }
+        }
+        return [newContainerElementDesignItem, newContainerService];
+    }
+}
+//# sourceMappingURL=DragDropService.js.map

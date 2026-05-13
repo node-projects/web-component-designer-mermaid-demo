@@ -1,0 +1,52 @@
+import { ValueType } from '../ValueType.js';
+export class BasePropertyEditor {
+    element;
+    property;
+    designItems;
+    disableChangeNotification = false;
+    constructor(property) {
+        this.property = property;
+    }
+    async _previewValueChanged(newValue) {
+        if (!this.disableChangeNotification) {
+            if (this.designItems && this.designItems.length)
+                await this.property.service.previewValue?.(this.designItems, this.property, newValue);
+        }
+    }
+    async _removePreviewValue() {
+        if (!this.disableChangeNotification) {
+            if (this.designItems && this.designItems.length)
+                await this.property.service.removePreviewValue?.(this.designItems, this.property);
+        }
+    }
+    async _valueChanged(newValue) {
+        if (!this.disableChangeNotification) {
+            if (this.designItems && this.designItems.length) {
+                const cg = this.designItems[0].openGroup("set property: " + this.property.name);
+                if (newValue == null)
+                    this.property.service.clearValue(this.designItems, this.property, 'value');
+                else
+                    await this.property.service.setValue(this.designItems, this.property, newValue);
+                cg.commit();
+            }
+        }
+    }
+    designItemsChanged(designItems) {
+        this.designItems = designItems;
+    }
+    refreshValueWithoutNotification(valueType, value) {
+        if (valueType == ValueType.none)
+            this.element.classList.add('unset-value');
+        else
+            this.element.classList.remove('unset-value');
+        this.disableChangeNotification = true;
+        try {
+            this.refreshValue(valueType, value);
+        }
+        catch (err) {
+            console.error(err);
+        }
+        this.disableChangeNotification = false;
+    }
+}
+//# sourceMappingURL=BasePropertyEditor.js.map
