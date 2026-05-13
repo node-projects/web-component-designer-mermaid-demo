@@ -24,9 +24,9 @@
   },
   "dependencies": {
     "@node-projects/base-custom-webcomponent": "0.46.0",
-    "@node-projects/web-component-designer": "file:../web-component-designer/packages/web-component-designer",
+    "@node-projects/web-component-designer": "0.2.24",
     "@node-projects/web-component-designer-codeview-monaco": "^0.2.1",
-    "@node-projects/web-component-designer-mermaid": "file:../web-component-designer/packages/web-component-designer-mermaid",
+    "@node-projects/web-component-designer-mermaid": "0.1.0",
     "es-module-shims": "^2.8.1",
     "mermaid": "^11.15.0"
   }
